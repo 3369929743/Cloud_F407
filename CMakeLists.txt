@@ -81,6 +81,7 @@ file(GLOB_RECURSE USER_SOURCES
 # 2. 将源文件添加到编译中
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${USER_SOURCES}
+    APP/Src/Task_Ball_Contral.c
 )
 
 # 3. 添加自定义头文件包含路径

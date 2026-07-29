@@ -302,7 +302,7 @@ void Serial_SetRxCallback(Serial_t *Serial, void (*RxCallback)(struct Serial_Str
  */
 void Serial_SetTxCallback(Serial_t *Serial, void (*TxCallback)(struct Serial_Struct *Serial))
 {
-    if(Serial == NULL) return;
+    if(Serial == NULL || TxCallback == NULL) return;
     Serial->TxCallback = TxCallback;
 }
 

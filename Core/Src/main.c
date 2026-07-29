@@ -30,6 +30,8 @@
 #include "OLED.h"
 #include "Task_Cloud.h"
 #include "K230.h"
+#include "DO_Device.h"
+#include "Task_Ball_Contral.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -54,7 +56,7 @@ Key_t Key_User;
 Timer_t Timer_Tick;
 uint8_t i = 0;
 uint8_t j = 0;
-
+extern DO_Device_t Laser;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -70,7 +72,7 @@ void Timer_Tick_Callback(Timer_t *timer){
   if(timer == &Timer_Tick){
     j++;
     Key_Tick(&Key_User, HAL_GPIO_ReadPin(User_Key_GPIO_Port, User_Key_Pin));
-    Task_Cloud_Tick();
+    Task_Ball_Contral_Tick();
   }
 }
 
@@ -79,7 +81,7 @@ void Key_Global_Callback(Key_t *Key, Key_Event_e Event){
     switch(Event){
       case KEY_EVENT_ONCE_PRESS:
         i++;
-        Task_Cloud_Toggle();
+        // Task_Ball_Contral_Toggle();
         break;
       case KEY_EVENT_DOUBLE_PRESS:
         break;
@@ -128,12 +130,11 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  Task_Cloud_Init();
   OLED_Init();
   OLED_ShowString(1, 1, "Hello World!");
   Key_Init(&Key_User, KEY_LEVEL_HIGH);
   Key_SetEventCallback(&Key_User, Key_Global_Callback);
-  Task_Cloud_Pith_Init();
+  Task_Ball_Contral_Init();
   Timer_Init(&Timer_Tick, Timer_14);
   Timer_Start_IT(&Timer_Tick, Timer_Tick_Callback);
 
@@ -147,10 +148,11 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     OLED_ShowNum(2, 1, i, 4);
+    OLED_ShowNum(2, 5, j, 4);
     OLED_ShowSignedNum(3, 1, K230_GetError_x(), 4);
     OLED_ShowSignedNum(4, 1, K230_GetError_y(), 4);
     Key_Trigger_Event(&Key_User);
-    Task_Cloud_Loop();
+    Task_Ball_Contral_Loop();
   }
   /* USER CODE END 3 */
 }
