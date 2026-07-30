@@ -12,6 +12,7 @@
  */
 typedef struct {
     float VisionUnitsPerCm;
+    float VisionZeroUnits;
     float ControlPeriodS;
     float ReferenceSpeedCmS;
     float VelocityFilterAlpha;
@@ -19,14 +20,25 @@ typedef struct {
     float VelocityGain;
     float PositionToleranceCm;
     float VelocityToleranceCmS;
+    float ControlDeadbandCm;
+    float StuckErrorCm;
+    float StuckVelocityCmS;
+    float StuckDetectTimeS;
+    float KickHoldTimeS;
     uint16_t StableSamples;
+    uint16_t MotorSpeed;
     int32_t MaxPulsePerCycle;
+    int32_t KickPulse;
+    int8_t MotorDirection;
+    uint8_t MotorAcceleration;
+    uint8_t MaxKickCount;
 } BallContral_Motion_Confg_t;
 
 typedef struct BallContral_Struct{
     uint8_t is_Enable;
     uint8_t VisionValid;
     uint8_t is_Reached;
+    uint8_t is_Stuck;
 
     Serial_t *Serial_K230;
     Serial_t *Serial_Emm;
@@ -43,7 +55,12 @@ typedef struct BallContral_Struct{
     float PreviousPositionCm;
     float VelocityCmS;
     float TimeSinceVisionS;
+    float StuckTimeS;
+    float KickHoldRemainingS;
     uint16_t StableCount;
+    uint8_t KickPending;
+    uint8_t KickCount;
+    int32_t LastMotorPulse;
 }BallContral_t;
 
 void BallContral_Init(BallContral_t *BallContral, Serial_t *Serial_K230, Serial_t *Serial_Emm, PID_Confg_t *PID_Confg);
@@ -59,6 +76,7 @@ void BallContral_UpdateVision(BallContral_t *BallContral, float VisionPosition);
 void BallContral_Control(BallContral_t *BallContral);
 void BallContral_SetVisionZero(BallContral_t *BallContral, float VisionPosition);
 uint8_t BallContral_IsReached(const BallContral_t *BallContral);
+uint8_t BallContral_IsStuck(const BallContral_t *BallContral);
 float BallContral_GetPositionCm(const BallContral_t *BallContral);
 float BallContral_GetVelocityCmS(const BallContral_t *BallContral);
 

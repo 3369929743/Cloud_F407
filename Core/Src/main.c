@@ -88,6 +88,8 @@ void Key_Global_Callback(Key_t *Key, Key_Event_e Event){
         Task_Ball_Contral_Pop_Restore();
         break;
       case KEY_EVENT_LONG_PRESS:
+        /* Calibrate zero only while the ball is physically at tube center. */
+        Task_Ball_Contral_Set_Zero();
         break;
       case KEY_EVENT_LONG_PRESS_REPEAT:
         break;

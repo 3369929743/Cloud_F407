@@ -8,8 +8,14 @@
  * VisionUnitsPerCm = visual displacement / actual displacement in cm.
  * Example: a 5 cm move spanning 42 pixels gives 8.4 pixels/cm. */
 #define BALL_VISION_UNITS_PER_CM       10.0f
+#define BALL_VISION_ZERO_UNITS          0.0f
 #define BALL_CONTROL_PERIOD_MS         10U
 #define BALL_CONTROL_PERIOD_S          0.010f
+#define BALL_MOTOR_SPEED               150U
+#define BALL_MOTOR_ACCELERATION          0U
+#define BALL_MOTOR_DIRECTION            -1
+#define BALL_TARGET_POSITIVE_CM          5.0f
+#define BALL_TARGET_NEGATIVE_CM         -5.0f
 
 static Serial_t Serial_K230;
 static Serial_t Serial_Emm_Ball;
@@ -29,6 +35,7 @@ static PID_Confg_t PID_Ball_Confg = {
 
 static const BallContral_Motion_Confg_t Ball_Motion_Confg = {
     .VisionUnitsPerCm = BALL_VISION_UNITS_PER_CM,
+    .VisionZeroUnits = BALL_VISION_ZERO_UNITS,
     .ControlPeriodS = BALL_CONTROL_PERIOD_S,
     .ReferenceSpeedCmS = 8.0f,
     .VelocityFilterAlpha = 0.80f,
@@ -36,8 +43,18 @@ static const BallContral_Motion_Confg_t Ball_Motion_Confg = {
     .VelocityGain = 0.02f,
     .PositionToleranceCm = 0.5f,
     .VelocityToleranceCmS = 1.0f,
+    .ControlDeadbandCm = 0.25f,
+    .StuckErrorCm = 0.6f,
+    .StuckVelocityCmS = 0.5f,
+    .StuckDetectTimeS = 0.30f,
+    .KickHoldTimeS = 0.15f,
     .StableSamples = 15U,
+    .MotorSpeed = BALL_MOTOR_SPEED,
     .MaxPulsePerCycle = 200,
+    .KickPulse = 80,
+    .MotorDirection = BALL_MOTOR_DIRECTION,
+    .MotorAcceleration = BALL_MOTOR_ACCELERATION,
+    .MaxKickCount = 3U,
 };
 
 static Task_Ball_Contral_State_e Task_Ball_Contral_State = TASK_BALL_CONTRAL_IDLE;
@@ -60,13 +77,13 @@ static void Task_Ball_Contral_Sequence_Update(void)
         case TASK_BALL_SEQUENCE_CENTER:
             /* 从中心位置移动到 +5cm */
             Task_Ball_Sequence_State = TASK_BALL_SEQUENCE_POSITIVE_5CM;
-            BallContral_GotoCm(&BallContral, 5.0f);
+            BallContral_GotoCm(&BallContral, BALL_TARGET_POSITIVE_CM);
             break;
 
         case TASK_BALL_SEQUENCE_POSITIVE_5CM:
             /* 从 +5cm 移动到 -5cm */
             Task_Ball_Sequence_State = TASK_BALL_SEQUENCE_NEGATIVE_5CM;
-            BallContral_GotoCm(&BallContral, -5.0f);
+            BallContral_GotoCm(&BallContral, BALL_TARGET_NEGATIVE_CM);
             break;
 
         case TASK_BALL_SEQUENCE_NEGATIVE_5CM:
@@ -102,8 +119,7 @@ void Task_Ball_Contral_Init(void)
 void Task_Ball_Contral_Toggle(void)
 {
     if (Task_Ball_Contral_State == TASK_BALL_CONTRAL_IDLE) {
-        Task_Ball_Contral_State = TASK_BALL_CONTRAL_RUNNING;
-        BallContral_Start(&BallContral);
+        Task_Ball_Contral_Start_Sequence();
     } else {
         Task_Ball_Contral_State = TASK_BALL_CONTRAL_IDLE;
         Task_Ball_Sequence_State = TASK_BALL_SEQUENCE_OFF;
@@ -184,6 +200,11 @@ uint8_t Task_Ball_Contral_Set_Zero(void)
 {
     if (!Ball_Vision_Has_Value) return 0U;
 
+    /* Zero calibration is an idle operation. Stopping here prevents a long
+       press during a run from continuing the old 0/+5/-5 sequence. */
+    BallContral_Stop(&BallContral);
+    Task_Ball_Contral_State = TASK_BALL_CONTRAL_IDLE;
+    Task_Ball_Sequence_State = TASK_BALL_SEQUENCE_OFF;
     BallContral_SetVisionZero(&BallContral, Ball_Last_Vision_Position);
     return 1U;
 }

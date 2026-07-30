@@ -38,6 +38,7 @@ void BallContral_Init(BallContral_t *BallContral, Serial_t *Serial_K230, Serial_
     /* Safe defaults. The task layer should replace VisionUnitsPerCm with the
        measured value from the real camera. */
     BallContral->Motion.VisionUnitsPerCm = 1.0f;
+    BallContral->Motion.VisionZeroUnits = 0.0f;
     BallContral->Motion.ControlPeriodS = 0.01f;
     BallContral->Motion.ReferenceSpeedCmS = 8.0f;
     BallContral->Motion.VelocityFilterAlpha = 0.80f;
@@ -45,12 +46,23 @@ void BallContral_Init(BallContral_t *BallContral, Serial_t *Serial_K230, Serial_
     BallContral->Motion.VelocityGain = 0.02f;
     BallContral->Motion.PositionToleranceCm = 0.5f;
     BallContral->Motion.VelocityToleranceCmS = 1.0f;
+    BallContral->Motion.ControlDeadbandCm = 0.25f;
+    BallContral->Motion.StuckErrorCm = 0.6f;
+    BallContral->Motion.StuckVelocityCmS = 0.5f;
+    BallContral->Motion.StuckDetectTimeS = 0.30f;
+    BallContral->Motion.KickHoldTimeS = 0.15f;
     BallContral->Motion.StableSamples = 15;
+    BallContral->Motion.MotorSpeed = 150U;
     BallContral->Motion.MaxPulsePerCycle = 200;
+    BallContral->Motion.KickPulse = 80;
+    BallContral->Motion.MotorDirection = -1;
+    BallContral->Motion.MotorAcceleration = 0U;
+    BallContral->Motion.MaxKickCount = 3U;
 
     BallContral->is_Enable = 0;
     BallContral->VisionValid = 0;
     BallContral->is_Reached = 0;
+    BallContral->is_Stuck = 0;
     BallContral->VisionZero = 0.0f;
     BallContral->TargetCm = 0.0f;
     BallContral->ReferenceCm = 0.0f;
@@ -58,7 +70,12 @@ void BallContral_Init(BallContral_t *BallContral, Serial_t *Serial_K230, Serial_
     BallContral->PreviousPositionCm = 0.0f;
     BallContral->VelocityCmS = 0.0f;
     BallContral->TimeSinceVisionS = BallContral->Motion.ControlPeriodS;
+    BallContral->StuckTimeS = 0.0f;
+    BallContral->KickHoldRemainingS = 0.0f;
     BallContral->StableCount = 0;
+    BallContral->KickPending = 0U;
+    BallContral->KickCount = 0U;
+    BallContral->LastMotorPulse = 0;
 
     /* 初始化Emm位置快速控制模式 */
     Emm_Pos_Control_Quick_Init(&BallContral->Emm_StepMotor);
@@ -69,6 +86,7 @@ void BallContral_ConfigMotion(BallContral_t *BallContral, const BallContral_Moti
     if ((BallContral == 0) || (Config == 0)) return;
 
     BallContral->Motion = *Config;
+    BallContral->VisionZero = BallContral->Motion.VisionZeroUnits;
     if (BallContral->Motion.VisionUnitsPerCm <= 0.0f) {
         BallContral->Motion.VisionUnitsPerCm = 1.0f;
     }
@@ -83,6 +101,30 @@ void BallContral_ConfigMotion(BallContral_t *BallContral, const BallContral_Moti
     if (BallContral->Motion.MaxPulsePerCycle < 0) {
         BallContral->Motion.MaxPulsePerCycle = -BallContral->Motion.MaxPulsePerCycle;
     }
+    if (BallContral->Motion.KickPulse < 0) {
+        BallContral->Motion.KickPulse = -BallContral->Motion.KickPulse;
+    }
+    if (BallContral->Motion.ControlDeadbandCm < 0.0f) {
+        BallContral->Motion.ControlDeadbandCm = -BallContral->Motion.ControlDeadbandCm;
+    }
+    if (BallContral->Motion.StuckErrorCm < BallContral->Motion.ControlDeadbandCm) {
+        BallContral->Motion.StuckErrorCm = BallContral->Motion.ControlDeadbandCm;
+    }
+    if (BallContral->Motion.StuckVelocityCmS < 0.0f) {
+        BallContral->Motion.StuckVelocityCmS = -BallContral->Motion.StuckVelocityCmS;
+    }
+    if (BallContral->Motion.StuckDetectTimeS < BallContral->Motion.ControlPeriodS) {
+        BallContral->Motion.StuckDetectTimeS = BallContral->Motion.ControlPeriodS;
+    }
+    if (BallContral->Motion.KickHoldTimeS < 0.0f) {
+        BallContral->Motion.KickHoldTimeS = 0.0f;
+    }
+    BallContral->Motion.MotorDirection =
+        (BallContral->Motion.MotorDirection >= 0) ? 1 : -1;
+
+    Emm_SetSpeed(&BallContral->Emm_StepMotor, BallContral->Motion.MotorSpeed);
+    Emm_SetAcc(&BallContral->Emm_StepMotor, BallContral->Motion.MotorAcceleration);
+    Emm_Pos_Control_Quick_Init(&BallContral->Emm_StepMotor);
 }
 
 void Ball_Contral_Emm_Quick_Init(BallContral_t *BallContral){
@@ -116,6 +158,12 @@ void BallContral_GotoCm(BallContral_t *BallContral, float TargetCm)
         BallContral->TargetCm = TargetCm;
         BallContral->StableCount = 0;
         BallContral->is_Reached = 0;
+        BallContral->is_Stuck = 0;
+        BallContral->StuckTimeS = 0.0f;
+        BallContral->KickHoldRemainingS = 0.0f;
+        BallContral->KickPending = 0U;
+        BallContral->KickCount = 0U;
+        BallContral->LastMotorPulse = 0;
         PID_Clear(&BallContral->PID_StepMotor);
     }
 }
@@ -137,11 +185,17 @@ void BallContral_UpdateVision(BallContral_t *BallContral, float VisionPosition)
     float RawVelocity;
     float Alpha;
     float PositionError;
+    float SamplePeriodS;
 
     if (BallContral == 0) return;
 
     PositionCm = (VisionPosition - BallContral->VisionZero) /
                  BallContral->Motion.VisionUnitsPerCm;
+
+    SamplePeriodS = BallContral->TimeSinceVisionS;
+    if (SamplePeriodS < BallContral->Motion.ControlPeriodS) {
+        SamplePeriodS = BallContral->Motion.ControlPeriodS;
+    }
 
     if (!BallContral->VisionValid) {
         BallContral->PositionCm = PositionCm;
@@ -150,10 +204,6 @@ void BallContral_UpdateVision(BallContral_t *BallContral, float VisionPosition)
         BallContral->ReferenceCm = PositionCm;
         BallContral->VisionValid = 1;
     } else {
-        float SamplePeriodS = BallContral->TimeSinceVisionS;
-        if (SamplePeriodS < BallContral->Motion.ControlPeriodS) {
-            SamplePeriodS = BallContral->Motion.ControlPeriodS;
-        }
         RawVelocity = (PositionCm - BallContral->PreviousPositionCm) / SamplePeriodS;
         Alpha = BallContral->Motion.VelocityFilterAlpha;
         BallContral->VelocityCmS = Alpha * BallContral->VelocityCmS +
@@ -164,6 +214,37 @@ void BallContral_UpdateVision(BallContral_t *BallContral, float VisionPosition)
     BallContral->TimeSinceVisionS = 0.0f;
 
     PositionError = BallContral_Abs(BallContral->TargetCm - BallContral->PositionCm);
+
+    /* Static-friction detection. A kick is scheduled only from a NEW vision
+       frame. While the kick is being executed, no second kick can accumulate. */
+    if (BallContral->is_Enable &&
+        !BallContral->KickPending &&
+        (BallContral->KickHoldRemainingS <= 0.0f) &&
+        (PositionError >= BallContral->Motion.StuckErrorCm) &&
+        (BallContral_Abs(BallContral->VelocityCmS) <=
+         BallContral->Motion.StuckVelocityCmS)) {
+        BallContral->StuckTimeS += SamplePeriodS;
+        if (BallContral->StuckTimeS >= BallContral->Motion.StuckDetectTimeS) {
+            BallContral->StuckTimeS = 0.0f;
+            if ((BallContral->Motion.KickPulse > 0) &&
+                (BallContral->KickCount < BallContral->Motion.MaxKickCount)) {
+                BallContral->KickPending = 1U;
+            } else {
+                /* Stop adding inclination when repeated kicks cannot move the
+                   ball. A new target or visible ball motion clears the lock. */
+                BallContral->is_Stuck = 1U;
+            }
+        }
+    } else {
+        BallContral->StuckTimeS = 0.0f;
+        if ((PositionError < BallContral->Motion.StuckErrorCm) ||
+            (BallContral_Abs(BallContral->VelocityCmS) >
+             BallContral->Motion.StuckVelocityCmS)) {
+            BallContral->is_Stuck = 0U;
+            BallContral->KickCount = 0U;
+        }
+    }
+
     if ((PositionError <= BallContral->Motion.PositionToleranceCm) &&
         (BallContral_Abs(BallContral->VelocityCmS) <= BallContral->Motion.VelocityToleranceCmS) &&
         (BallContral_Abs(BallContral->TargetCm - BallContral->ReferenceCm) <=
@@ -197,6 +278,8 @@ void BallContral_Control(BallContral_t *BallContral)
     float VelocityBrake;
     float Output;
     float MaxPulse;
+    float PositionErrorCm;
+    int32_t MotorPulse;
 
     if ((BallContral == 0) || !BallContral->is_Enable || !BallContral->VisionValid) return;
 
@@ -206,6 +289,55 @@ void BallContral_Control(BallContral_t *BallContral)
     BallContral->ReferenceCm += BallContral_Clamp(ReferenceError,
                                                   -ReferenceStep,
                                                   ReferenceStep);
+
+    PositionErrorCm = BallContral->TargetCm - BallContral->PositionCm;
+
+    /* A failed series of start kicks is treated as a safe lock. Continuing
+       with small relative commands here would make the screw creep forever. */
+    if (BallContral->is_Stuck) {
+        BallContral->LastMotorPulse = 0;
+        return;
+    }
+
+    /* A kick is one finite relative displacement, followed by a short
+       observation interval. This raises the tube promptly past static
+       friction instead of accumulating tiny pulses indefinitely. */
+    if (BallContral->KickPending) {
+        BallContral->KickPending = 0U;
+        if (BallContral_Abs(PositionErrorCm) >= BallContral->Motion.StuckErrorCm) {
+            MotorPulse = BallContral->Motion.MotorDirection *
+                         ((PositionErrorCm > 0.0f) ?
+                          BallContral->Motion.KickPulse :
+                         -BallContral->Motion.KickPulse);
+            Emm_Pos_Run_Quick(&BallContral->Emm_StepMotor, MotorPulse);
+            BallContral->LastMotorPulse = MotorPulse;
+            BallContral->KickCount++;
+            BallContral->KickHoldRemainingS = BallContral->Motion.KickHoldTimeS;
+            PID_Clear(&BallContral->PID_StepMotor);
+            return;
+        }
+    }
+
+    if (BallContral->KickHoldRemainingS > 0.0f) {
+        BallContral->KickHoldRemainingS -= BallContral->Motion.ControlPeriodS;
+        if (BallContral->KickHoldRemainingS < 0.0f) {
+            BallContral->KickHoldRemainingS = 0.0f;
+        }
+        BallContral->LastMotorPulse = 0;
+        return;
+    }
+
+    /* Once position and velocity are both small, stop sending relative
+       commands. This is the anti-creep deadband around 0/+5/-5 cm. */
+    if ((BallContral_Abs(PositionErrorCm) <= BallContral->Motion.ControlDeadbandCm) &&
+        (BallContral_Abs(BallContral->VelocityCmS) <=
+         BallContral->Motion.VelocityToleranceCmS)) {
+        BallContral->ReferenceCm = BallContral->TargetCm;
+        BallContral->StuckTimeS = 0.0f;
+        BallContral->LastMotorPulse = 0;
+        PID_Clear(&BallContral->PID_StepMotor);
+        return;
+    }
 
     /* Do not extrapolate an old frame without bound while approaching the
        vision-loss timeout. */
@@ -228,8 +360,12 @@ void BallContral_Control(BallContral_t *BallContral)
         Output = BallContral_Clamp(Output, -MaxPulse, MaxPulse);
     }
 
-    Emm_Pos_Run_Quick(&BallContral->Emm_StepMotor,
-                      -BallContral_RoundToInt(Output));
+    MotorPulse = BallContral->Motion.MotorDirection *
+                 BallContral_RoundToInt(Output);
+    BallContral->LastMotorPulse = MotorPulse;
+    if (MotorPulse != 0) {
+        Emm_Pos_Run_Quick(&BallContral->Emm_StepMotor, MotorPulse);
+    }
 }
 
 void BallContral_SetVisionZero(BallContral_t *BallContral, float VisionPosition)
@@ -245,6 +381,12 @@ void BallContral_SetVisionZero(BallContral_t *BallContral, float VisionPosition)
     BallContral->TargetCm = 0.0f;
     BallContral->StableCount = 0;
     BallContral->is_Reached = 0;
+    BallContral->is_Stuck = 0;
+    BallContral->StuckTimeS = 0.0f;
+    BallContral->KickHoldRemainingS = 0.0f;
+    BallContral->KickPending = 0U;
+    BallContral->KickCount = 0U;
+    BallContral->LastMotorPulse = 0;
     BallContral->VisionValid = 1;
     PID_Clear(&BallContral->PID_StepMotor);
 }
@@ -252,6 +394,11 @@ void BallContral_SetVisionZero(BallContral_t *BallContral, float VisionPosition)
 uint8_t BallContral_IsReached(const BallContral_t *BallContral)
 {
     return (BallContral != 0) ? BallContral->is_Reached : 0U;
+}
+
+uint8_t BallContral_IsStuck(const BallContral_t *BallContral)
+{
+    return (BallContral != 0) ? BallContral->is_Stuck : 0U;
 }
 
 float BallContral_GetPositionCm(const BallContral_t *BallContral)
@@ -273,6 +420,12 @@ void BallContral_Start(BallContral_t *BallContral){
         BallContral->ReferenceCm = BallContral->PositionCm;
     }
     PID_Clear(&BallContral->PID_StepMotor);
+    BallContral->is_Stuck = 0U;
+    BallContral->StuckTimeS = 0.0f;
+    BallContral->KickHoldRemainingS = 0.0f;
+    BallContral->KickPending = 0U;
+    BallContral->KickCount = 0U;
+    BallContral->LastMotorPulse = 0;
     BallContral->is_Enable = 1;
 }
 
@@ -280,5 +433,11 @@ void BallContral_Stop(BallContral_t *BallContral){
     BallContral->is_Enable = 0;
     BallContral->StableCount = 0;
     BallContral->is_Reached = 0;
+    BallContral->is_Stuck = 0;
+    BallContral->StuckTimeS = 0.0f;
+    BallContral->KickHoldRemainingS = 0.0f;
+    BallContral->KickPending = 0U;
+    BallContral->KickCount = 0U;
+    BallContral->LastMotorPulse = 0;
     PID_Clear(&BallContral->PID_StepMotor);
 }
