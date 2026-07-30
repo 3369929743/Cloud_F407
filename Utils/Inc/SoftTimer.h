@@ -16,6 +16,8 @@ typedef struct SoftTimer{
 
     uint8_t isRunning : 1;
     uint8_t isElapsed : 1;
+
+    
 }SoftTimer_t;
 
 void SoftTimer_Init(SoftTimer_t *Timer, SoftTimer_Mode_e Mode, uint32_t TimeCount);

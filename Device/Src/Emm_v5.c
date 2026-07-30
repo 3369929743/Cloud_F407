@@ -11,6 +11,8 @@
 #define EMM_POS_RESER_ASSIST 0x6D // 位置重置辅助功能码
 #define EMM_SPEED_CONTROL 0xF6
 
+#define DEFAULT_SPEED 150
+
 /**
   * @brief  EMM-V5电机驱动器初始化函数
   * @param  Emm: EMM位置控制结构体指针，用于存储电机控制参数和状态
@@ -25,7 +27,7 @@ void Emm_Init(Emm_t *Emm, Serial_t *Serial)
 	Emm->Addr = 0x01;          /* 设置默认电机驱动器地址：多机通信时用于区分目标设备 */
 
 	Emm->Dir = 0;              /* 默认旋转方向：0表示CW（顺时针），1表示CCW（逆时针） */
-	Emm->Vel = 50;            /* 默认运行速度：单位由电机驱动器定义（通常为RPM或脉冲/秒） */
+	Emm->Vel = DEFAULT_SPEED;  /* 默认运行速度：单位由电机驱动器定义（通常为RPM或脉冲/秒） */
 	Emm->Acc = 0;              /* 默认加速度：0表示使用驱动器默认加速度曲线 */
 	Emm->raF = 0;              /* 默认位置模式：0表示相对模式（相对上一目标位置），1表示绝对模式（相对坐标零点） */
 	Emm->snF = 0;              /* 默认同步模式：0表示不同步，1表示多机同步运动 */

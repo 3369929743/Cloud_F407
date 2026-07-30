@@ -21,6 +21,7 @@ void BallContral_Run(BallContral_t *BallContral, PID_val Target);
 uint8_t BallContral_Get_is_Enable(BallContral_t *BallContral);
 void BallContral_Start(BallContral_t *BallContral);
 void BallContral_Stop(BallContral_t *BallContral);
-
+void Ball_Contral_Emm_Quick_Init(BallContral_t *BallContral);
+void Ball_Contral_Pop_Run(BallContral_t *BallContral, int32_t Pulse);
 
 #endif

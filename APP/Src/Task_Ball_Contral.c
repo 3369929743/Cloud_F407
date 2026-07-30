@@ -12,7 +12,7 @@ static SoftTimer_t SoftTimer_K230;
 static BallContral_t BallContral;
 
 static PID_Confg_t PID_Ball_Confg = {
-    .Kp = 0.12,
+    .Kp = 0.05,
     .Ki = 0,
     .Kd = 0,
 };
@@ -51,6 +51,8 @@ void Task_Ball_Contral_Loop(void){
 
     switch(Task_Ball_Contral_State){
         case TASK_BALL_CONTRAL_IDLE:
+            break;
+        case TASK_BALL_CONTRAL_RUNNING:
             if(K230_GetFlag()){
                 if(K230_Error_Update()){
                     SoftTimer_Reset(&SoftTimer_K230);
@@ -61,10 +63,8 @@ void Task_Ball_Contral_Loop(void){
                 Task_Ball_Contral_State = TASK_BALL_CONTRAL_LOST;
             }
             else{
-                // BallContral_Run(&BallContral, K230_GetError_y());
+                BallContral_Run(&BallContral, K230_GetError_x());
             }
-            break;
-        case TASK_BALL_CONTRAL_RUNNING:
             break;
         case TASK_BALL_CONTRAL_LOST:
             BallContral_Stop(&BallContral);
@@ -82,4 +82,16 @@ void Task_Ball_Contral_Loop(void){
 void Task_Ball_Contral_Tick(void){
     SoftTimer_Update(&SoftTimer_Ball_Contral);
     SoftTimer_Update(&SoftTimer_K230);
+}
+
+void Task_Ball_Contral_Pop_Init(void){
+    Ball_Contral_Emm_Quick_Init(&BallContral);
+}
+
+void Task_Ball_Contral_Pop_Ready(void){
+    Ball_Contral_Pop_Run(&BallContral, -8000);
+}
+
+void Task_Ball_Contral_Pop_Restore(void){
+    Ball_Contral_Pop_Run(&BallContral, 8000);
 }

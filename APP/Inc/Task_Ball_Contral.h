@@ -11,5 +11,8 @@ void Task_Ball_Contral_Init(void);
 void Task_Ball_Contral_Toggle(void);
 void Task_Ball_Contral_Loop(void);
 void Task_Ball_Contral_Tick(void);
+void Task_Ball_Contral_Pop_Init(void);
+void Task_Ball_Contral_Pop_Ready(void);
+void Task_Ball_Contral_Pop_Restore(void);
 
 #endif

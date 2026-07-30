@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "stm32f4xx_hal.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -81,9 +82,10 @@ void Key_Global_Callback(Key_t *Key, Key_Event_e Event){
     switch(Event){
       case KEY_EVENT_ONCE_PRESS:
         i++;
-        // Task_Ball_Contral_Toggle();
+        Task_Ball_Contral_Toggle();
         break;
       case KEY_EVENT_DOUBLE_PRESS:
+        Task_Ball_Contral_Pop_Restore();
         break;
       case KEY_EVENT_LONG_PRESS:
         break;
@@ -130,6 +132,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  Task_Ball_Contral_Pop_Init();
   OLED_Init();
   OLED_ShowString(1, 1, "Hello World!");
   Key_Init(&Key_User, KEY_LEVEL_HIGH);
@@ -137,6 +140,8 @@ int main(void)
   Task_Ball_Contral_Init();
   Timer_Init(&Timer_Tick, Timer_14);
   Timer_Start_IT(&Timer_Tick, Timer_Tick_Callback);
+  HAL_Delay(1500);
+  Task_Ball_Contral_Pop_Ready();
 
   /* USER CODE END 2 */
 
