@@ -132,7 +132,6 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  Task_Ball_Contral_Pop_Init();
   OLED_Init();
   OLED_ShowString(1, 1, "Hello World!");
   Key_Init(&Key_User, KEY_LEVEL_HIGH);
